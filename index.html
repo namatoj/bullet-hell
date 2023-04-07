@@ -1,0 +1,506 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Top Down Shooter</title>
+    <style>
+      canvas {
+        display: block;
+        margin: auto;
+        background-color: #222;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="gameCanvas" width="800" height="600"></canvas>
+    <script>
+      const canvas = document.getElementById("gameCanvas");
+      const ctx = canvas.getContext("2d");
+
+      let mouseX = 0;
+      let mouseY = 0;
+
+      let player = {
+        x: canvas.width / 2,
+        y: canvas.height / 2,
+        speed: 4,
+        size: 20,
+        angle: 0,
+        health: 20,
+        auto: false,
+      };
+
+      const startLevel = 1;
+      const lastLevel = 20;
+      let bullets = [];
+      let shots = [];
+      let level = startLevel;
+      let gameOver = false;
+      const spacing = 2;
+      let score = 0;
+      let enemies = spawnEnemies(level, level);
+
+      function gameLoop(timestamp) {
+        if (!gameOver) {
+          if (player.auto) {
+            autoPilot();
+          }
+          update();
+          draw();
+        }
+        requestAnimationFrame(gameLoop);
+      }
+
+      function autoPilot() {
+        player.x += Math.cos(player.angle) * player.speed;
+        player.y += Math.sin(player.angle) * player.speed;
+        player.angle -= 0.025;
+        // Calculate the center of the enemy group
+        let centerX = 0;
+        let centerY = 0;
+        const activeEnemies = enemies.filter((enemy) => !enemy.atRest);
+        activeEnemies.forEach((enemy) => {
+          centerX += enemy.x + enemy.size / 2;
+          centerY += enemy.y + enemy.size / 2;
+        });
+        centerX /= activeEnemies.length;
+        centerY /= activeEnemies.length;
+
+        // Determine the angle between the center of the enemy group and the player
+        const angleToPlayer = Math.atan2(
+          centerY - player.y,
+          centerX - player.x
+        );
+
+        if (Math.random() < 0.03) {
+          bullets.push({
+            x: player.x,
+            y: player.y,
+            size: 3,
+            angle: angleToPlayer,
+            speed: 8,
+            life: 100,
+          });
+        }
+      }
+
+      function reset() {
+        level = startLevel;
+        gameOver = false;
+        score = 0;
+        player = {
+          x: canvas.width / 2,
+          y: canvas.height / 2,
+          speed: 4,
+          size: 20,
+          angle: 0,
+          health: 20,
+        };
+
+        bullets = [];
+        shots = [];
+        enemies = spawnEnemies(level, level);
+      }
+
+      function update() {
+        // ... player and bullet update code
+        if (keys["KeyW"]) {
+          player.x += Math.cos(player.angle) * player.speed;
+          player.y += Math.sin(player.angle) * player.speed;
+        }
+
+        if (keys["KeyS"]) {
+          player.x -= Math.cos(player.angle) * player.speed;
+          player.y -= Math.sin(player.angle) * player.speed;
+        }
+
+        if (keys["KeyA"]) {
+          player.angle -= 0.1;
+        }
+
+        if (keys["KeyD"]) {
+          player.angle += 0.1;
+        }
+
+        wrapAround(player);
+
+        bullets.forEach((bullet, i) => {
+          bullet.x += Math.cos(bullet.angle) * bullet.speed;
+          bullet.y += Math.sin(bullet.angle) * bullet.speed;
+
+          wrapAround(bullet);
+
+          if (bullet.life <= 0) {
+            bullets.splice(i, 1);
+          } else {
+            bullet.life -= 1;
+          }
+        });
+
+        bullets.forEach((bullet, i) => {
+          const activeEnemies = enemies.filter((enemy) => !enemy.atRest);
+
+          activeEnemies.forEach((enemy) => {
+            if (!enemy.hit && isColliding(bullet, enemy)) {
+              enemy.hit = true;
+              score += 1;
+              bullets.splice(i, 1);
+            }
+          });
+        });
+
+        enemies.forEach((enemy) => {
+          const atRestEnemies = enemies.filter((enemy) => enemy.atRest);
+          atRestEnemies.forEach((atRestEnemy) => {
+            if (enemy.hit && isColliding(enemy, atRestEnemy)) {
+              enemy.atRest = true;
+            }
+          });
+
+          // Enemy shoots
+          if (!enemy.hit && Math.random() < 0.001) {
+            shots.push({
+              x: enemy.x + enemy.size / 2,
+              y: enemy.y + enemy.size / 2,
+              size: 5,
+              angle: Math.atan2(player.y - enemy.y, player.x - enemy.x),
+              speed: 4,
+            });
+          }
+
+          // Hit enemy falling
+          if (enemy.hit && !enemy.atRest) {
+            enemy.y += 5;
+            if (enemy.y >= canvas.height - enemy.size) {
+              enemy.atRest = true;
+            }
+          }
+        });
+
+        shots.forEach((shot, i) => {
+          shot.x += Math.cos(shot.angle) * shot.speed;
+          shot.y += Math.sin(shot.angle) * shot.speed;
+
+          if (isColliding(shot, player)) {
+            // Handle player hit by enemy shot here
+            player.health -= 1;
+            if (player.health <= 0) {
+              gameOver = true;
+            }
+            shots.splice(i, 1);
+          }
+
+          if (
+            shot.y > canvas.height ||
+            shot.y < 0 ||
+            shot.x < 0 ||
+            shot.x > canvas.width
+          ) {
+            shots.splice(i, 1);
+          }
+        });
+
+        if (enemies.every((enemy) => enemy.hit)) {
+          // Handle enemy defeat here
+          // console.log("All enemy squares are destroyed");
+          level += 1;
+          if (level > lastLevel) {
+            gameOver = true;
+          }
+          enemies = spawnEnemies(level, level);
+        }
+
+        // Calculate the center of the enemy group
+        let centerX = 0;
+        let centerY = 0;
+        const activeEnemies = enemies.filter((enemy) => !enemy.atRest);
+        activeEnemies.forEach((enemy) => {
+          centerX += enemy.x + enemy.size / 2;
+          centerY += enemy.y + enemy.size / 2;
+        });
+        centerX /= activeEnemies.length;
+        centerY /= activeEnemies.length;
+
+        // Determine the angle between the center of the enemy group and the player
+        const angleToPlayer = Math.atan2(
+          player.y - centerY,
+          player.x - centerX
+        );
+
+        markIsolatedEnemies(enemies);
+        // Update the x and y coordinates of each enemy
+        const enemySpeed = 1;
+        activeEnemies.forEach((enemy) => {
+          enemy.x += Math.cos(angleToPlayer) * enemySpeed;
+          enemy.y += Math.sin(angleToPlayer) * enemySpeed;
+        });
+      }
+
+      function spawnEnemies(columns, rows) {
+        const enemies = [];
+        const enemySize = 10;
+        const enemySpeed = 1;
+
+        for (let i = 0; i < columns * rows; i++) {
+          enemies.push({
+            x: (i % columns) * (enemySize + spacing) + 80,
+            y: Math.floor(i / columns) * (enemySize + spacing) + 50,
+            size: enemySize,
+            hit: false,
+            atRest: false,
+          });
+        }
+
+        return enemies;
+      }
+
+      function isColliding(obj1, obj2) {
+        return (
+          obj1.x < obj2.x + obj2.size &&
+          obj1.x + obj1.size > obj2.x &&
+          obj1.y < obj2.y + obj2.size &&
+          obj1.y + obj1.size > obj2.y
+        );
+      }
+      function wrapAround(obj) {
+        if (obj.x < 0) obj.x = canvas.width;
+        if (obj.x > canvas.width) obj.x = 0;
+        if (obj.y < 0) obj.y = canvas.height;
+        if (obj.y > canvas.height) obj.y = 0;
+      }
+      function areConnected(enemy1, enemy2) {
+        const xDiff = Math.abs(enemy1.x - enemy2.x);
+        const yDiff = Math.abs(enemy1.y - enemy2.y);
+        return (
+          (xDiff <= enemySize + spacing && yDiff <= spacing) ||
+          (xDiff <= spacing && yDiff <= enemySize + spacing)
+        );
+      }
+
+      function findConnectedGroups(enemies) {
+        const visited = new Set();
+        const groups = [];
+
+        function isEnemyConnected(e1, e2) {
+          const dx = Math.abs(e1.x - e2.x);
+          const dy = Math.abs(e1.y - e2.y);
+
+          return (
+            (dx <= e1.size + spacing + 1 && dy <= spacing + 1) ||
+            (dy <= e1.size + spacing + 1 && dx <= spacing + 1)
+          );
+        }
+
+        function bfs(enemy) {
+          const group = [enemy];
+          const queue = [enemy];
+          visited.add(enemy);
+
+          while (queue.length > 0) {
+            const current = queue.shift();
+
+            for (const e of enemies) {
+              if (!visited.has(e) && isEnemyConnected(current, e)) {
+                visited.add(e);
+                queue.push(e);
+                group.push(e);
+              }
+            }
+          }
+
+          return group;
+        }
+
+        for (const enemy of enemies) {
+          if (!visited.has(enemy) && !enemy.hit) {
+            const newGroup = bfs(enemy);
+
+            let connectedToExistingGroup = false;
+            for (const group of groups) {
+              if (
+                group.some((e) =>
+                  newGroup.some((e2) => isEnemyConnected(e, e2))
+                )
+              ) {
+                group.push(...newGroup);
+                connectedToExistingGroup = true;
+                break;
+              }
+            }
+
+            if (!connectedToExistingGroup) {
+              groups.push(newGroup);
+            }
+          }
+        }
+
+        return groups;
+      }
+
+      function markIsolatedEnemies(enemies) {
+        const connectedGroups = findConnectedGroups(enemies);
+        const largestGroup = connectedGroups.reduce(
+          (largest, group) => (group.length > largest.length ? group : largest),
+          []
+        );
+
+        for (const enemy of enemies) {
+          if (!largestGroup.includes(enemy) && !enemy.atRest) {
+            enemy.hit = true;
+            score += 1;
+          }
+        }
+      }
+
+      function renderPlayer(ctx) {
+        ctx.save();
+        ctx.translate(player.x, player.y);
+        ctx.rotate(player.angle);
+        ctx.fillStyle = "blue";
+        ctx.shadowColor = "blue";
+        ctx.shadowBlur = 20;
+        if (gameOver) {
+          ctx.fillStyle = "gray";
+        }
+        ctx.beginPath();
+        ctx.arc(0, 0, player.size / 2, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = "green";
+        ctx.shadowColor = "green";
+        if (gameOver) {
+          ctx.fillStyle = "gray";
+        }
+        ctx.beginPath();
+        ctx.arc(player.size / 2, 0, player.size / 4, 0, Math.PI * 2);
+        ctx.fill();
+
+        ctx.rotate(-player.angle);
+        ctx.rotate(Math.atan2(mouseY - player.y, mouseX - player.x));
+        ctx.fillStyle = "white";
+        ctx.beginPath();
+        ctx.arc(2 * player.size, 0, 3, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
+
+      function renderPlayerBullets(ctx) {
+        ctx.shadowColor = "rgba(255, 255, 0, 1.0)";
+        ctx.fillStyle = "rgba(255, 255, 0, 0.5)";
+        ctx.shadowBlur = 20;
+        ctx.shadowOffsetX = 0;
+        ctx.shadowOffsetY = 0;
+        bullets.forEach((bullet) => {
+          ctx.beginPath();
+          ctx.arc(bullet.x, bullet.y, bullet.size, 0, Math.PI * 2);
+          ctx.fill();
+        });
+      }
+
+      function renderEnemies(ctx) {
+        ctx.shadowColor = "rgba(0, 255, 0, 1.0)";
+        ctx.fillStyle = "rgba(0, 255, 0, 0.5)";
+        ctx.shadowBlur = 0;
+        enemies.forEach((enemy) => {
+          if (enemy.hit) {
+            ctx.fillStyle = "rgba(0, 128, 0, 0.5)";
+          } else if (!enemy.atRest) {
+            ctx.fillStyle = "rgba(0, 255, 0, 0.5)";
+          } else {
+            ctx.fillStyle = "magenta";
+          }
+          ctx.fillRect(enemy.x, enemy.y, enemy.size, enemy.size);
+        });
+      }
+
+      function renderEnemiesShots(ctx) {
+        ctx.fillStyle = "orange";
+        ctx.shadowColor = "orange";
+        ctx.shadowBlur = 20;
+        ctx.shadowOffsetX = 0;
+        ctx.shadowOffsetY = 0;
+        shots.forEach((shot) => {
+          ctx.beginPath();
+          ctx.fillStyle = "orange";
+          ctx.arc(shot.x, shot.y, shot.size, 0, Math.PI * 2);
+          ctx.fill();
+        });
+      }
+
+      function draw() {
+        // ... player and bullet draw code
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+        renderPlayer(ctx);
+        renderPlayerBullets(ctx);
+        renderEnemies(ctx);
+        renderEnemiesShots(ctx);
+
+        renderHUD(ctx, level, score, player.health);
+        if (gameOver) {
+          renderGameOverInfo(ctx);
+        }
+      }
+
+      function renderHUD(ctx, level, score, playerHealth) {
+        ctx.shadowBlur = 0;
+        ctx.font = "20px Arial";
+        ctx.fillStyle = "gray";
+        ctx.textAlign = "right";
+        ctx.fillText(`Level: ${level}`, canvas.width - 10, 30);
+        ctx.fillText(`Score: ${score}`, canvas.width - 10, 60);
+        ctx.fillText(`Health: ${playerHealth}`, canvas.width - 10, 90);
+      }
+
+      function renderGameOverInfo(ctx) {
+        ctx.shadowBlur = 20;
+        ctx.font = "40px Arial";
+        ctx.fillStyle = "gray";
+        ctx.textAlign = "center";
+        if (level > lastLevel) {
+          ctx.fillText("You Won!", canvas.width / 2, canvas.height / 2);
+        } else {
+          ctx.fillText("Game Over", canvas.width / 2, canvas.height / 2);
+        }
+        ctx.font = "20px Arial";
+        ctx.fillText(
+          "Press Enter to restart",
+          canvas.width / 2,
+          canvas.height / 2 + 40
+        );
+      }
+
+      // ... rest of the event listeners and game loop
+      const keys = {};
+      window.addEventListener("keydown", (e) => {
+        console.log("keydown");
+        keys[e.code] = true;
+        if (e.code === "Enter") {
+          reset();
+        }
+      });
+      window.addEventListener("keyup", (e) => {
+        keys[e.code] = false;
+      });
+
+      canvas.addEventListener("mousemove", (e) => {
+        const rect = canvas.getBoundingClientRect();
+        mouseX = e.clientX - rect.left;
+        mouseY = e.clientY - rect.top;
+      });
+
+      canvas.addEventListener("click", () => {
+        bullets.push({
+          x: player.x,
+          y: player.y,
+          size: 3,
+          angle: Math.atan2(mouseY - player.y, mouseX - player.x),
+          speed: 8,
+          life: 100,
+        });
+      });
+
+      gameLoop();
+    </script>
+  </body>
+</html>
